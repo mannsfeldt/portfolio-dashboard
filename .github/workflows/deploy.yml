@@ -32,7 +32,8 @@ jobs:
       - name: Assemble site
         run: |
           mkdir -p _site/data
-          cp index.html style.css core.js app.js favicon.svg _site/
+          cp index.html style.css core.js app.js favicon.svg manifest.webmanifest _site/
+          cp -r icons _site/icons
           cp data/prices.json _site/data/
           # version-stamp the assets so browsers never reuse a stale copy after an update
           sed -i -E "s/(core\.js|app\.js|style\.css)\"/\1?v=${GITHUB_SHA:0:8}\"/g" _site/index.html

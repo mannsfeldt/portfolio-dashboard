@@ -2,7 +2,7 @@
 #   powershell -ExecutionPolicy Bypass -File scripts/serve.ps1        then open http://localhost:8080
 param([int]$Port = 8080)
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$mime = @{ '.html'='text/html; charset=utf-8'; '.js'='text/javascript; charset=utf-8'; '.css'='text/css; charset=utf-8'; '.json'='application/json'; '.svg'='image/svg+xml'; '.csv'='text/csv'; '.txt'='text/plain' }
+$mime = @{ '.html'='text/html; charset=utf-8'; '.js'='text/javascript; charset=utf-8'; '.css'='text/css; charset=utf-8'; '.json'='application/json'; '.svg'='image/svg+xml'; '.csv'='text/csv'; '.txt'='text/plain'; '.png'='image/png'; '.webmanifest'='application/manifest+json' }
 $l = New-Object Net.HttpListener
 $l.Prefixes.Add("http://localhost:$Port/")
 $l.Start()

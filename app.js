@@ -213,7 +213,7 @@
       <p>Drop your RBC Direct Investing <b>Holdings</b> CSV exports here — one file per account — or choose them below.</p>
       <p style="margin-bottom:16px">Everything stays in this browser. Nothing about your accounts is uploaded anywhere.</p>
       <button type="button" class="btn primary" data-act="import">Choose CSV files</button>
-      <p style="margin-top:18px"><button type="button" class="btn" data-act="restore">Restore from backup file</button></p>
+      <p style="margin-top:18px"><button type="button" class="btn" data-act="pastelink">Load from private link…</button> <button type="button" class="btn" data-act="restore">Restore from backup file</button></p>
     </div>`;
   }
 
@@ -417,6 +417,19 @@
     history.replaceState(null, '', location.pathname + location.search);
   }
 
+  // for an installed phone app, where you can't open a link inside it: paste the link text instead
+  async function loadFromLink(text) {
+    const m = String(text || '').trim().match(/#d=([^\s#]+)$/);
+    if (!m) { alert('That doesn’t look like a private link — it should contain “#d=”.'); return; }
+    try {
+      const data = await decodeShare(m[1]);
+      if (!data || !Array.isArray(data.accounts)) throw new Error('bad link');
+      if (!S.accounts.length || confirm(`Replace the holdings on this device with the ${data.accounts.length} account(s) in that link?`)) {
+        S.accounts = data.accounts; saveAccounts(); closeDlg(); render(); toast('Holdings loaded from link');
+      }
+    } catch (e) { alert('That private link could not be read.'); }
+  }
+
   /* ---------- dialogs ---------- */
   const dlg = () => $('#dlg');
   function openDlg(html) { const d = dlg(); d.innerHTML = `<div class="dlg">${html}</div>`; if (!d.open) d.showModal(); }
@@ -438,6 +451,7 @@
         <button type="button" class="btn" data-act="link">Copy private link</button>
         <button type="button" class="btn" data-act="export">Download backup</button>
         <button type="button" class="btn" data-act="restore">Restore backup…</button>
+        <button type="button" class="btn" data-act="pastelink">Load from private link…</button>
       </div>
       <div class="dlg-actions"><button type="button" class="btn danger" data-act="clear">Erase everything on this device</button><button type="button" class="btn primary" data-act="close">Done</button></div>`);
   }
@@ -539,6 +553,7 @@
           if (!S.accounts.length || confirm('Replace the holdings on this device with the backup?')) { S.accounts = d.accounts; saveAccounts(); closeDlg(); render(); toast('Backup restored'); }
         } catch (err) { alert('Could not read that backup: ' + err.message); }
       }); break;
+      case 'pastelink': loadFromLink(prompt('Paste your private link here:')); break;
       case 'link': {
         const url = location.origin + location.pathname + '#d=' + await encodeShare({ version: 1, accounts: S.accounts });
         try { await navigator.clipboard.writeText(url); toast('Private link copied — open it on your other device'); }
@@ -599,6 +614,6 @@
     setInterval(loadPrices, 5 * 60 * 1000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) loadPrices(); });
   }
-  window.App = { S, render, importFiles, loadPrices }; // handy for debugging
+  window.App = { S, render, importFiles, loadPrices, loadFromLink }; // handy for debugging
   boot();
 })();
