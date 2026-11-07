@@ -1,0 +1,16 @@
+# Tickers the dashboard downloads prices for (Yahoo Finance symbols), one per line.
+# When you buy something new, add its Yahoo symbol here. Canadian listings end in .TO
+# (RBC "XEQT" -> XEQT.TO). US listings have no suffix (AAPL). The "=X" line is the USD->CAD exchange rate.
+USDCAD=X
+XEQT.TO
+XGRO.TO
+XBAL.TO
+XIC.TO
+XEF.TO
+XEC.TO
+XMC.TO
+XUS.TO
+XBB.TO
+VSB.TO
+ZMMK.TO
+CACE.TO

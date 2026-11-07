@@ -1,0 +1,5 @@
+data/
+.testdata/
+.claude/
+*.csv
+Thumbs.db

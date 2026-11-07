@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Core tests</title>
+<style>body{font:14px system-ui;margin:20px}.ok{color:#060}.bad{color:#c00;font-weight:600}</style></head>
+<body><h1>Core tests</h1><pre id="out"></pre>
+<script src="../core.js"></script>
+<script>
+// Open this page via the local server (scripts/serve.ps1) at /tests/ — every line should be PASS.
+const CSV = `"Holdings Export as of Jan 8, 2027 1:00:00 PM ET"
+
+Account: 11112222 - Test TFSA
+
+"Balances as of Jan 7, 2027"
+
+,Trailing 12 Mo Return,Unrealized Gain/Loss in CAD
+,N/A,"0"
+
+Currency,Cash,Investments,Total,Exchange Rate to CAD
+CAD,"100.00","1000","1100",1
+USD,"50.00","0","50",1.4
+
+,Product,Symbol,Name,Quantity,Last Price,Currency,Change $,Change %,Total Book Cost,Total Market Value,Unrealized Gain/Loss $,Unrealized Gain/Loss %,Average Cost,Annual Dividend Amount $,Dividend Ex Date,Load Type,RSP Eligibility,Automatic Investment Plan,DRIP Eligibility,Coupon Rate,Maturity Date,Expiration Date,Open Interest
+CAD Holdings,"ETFs and ETNs",ABC,"TEST, ETF",10,"100",CAD,"1","1%","900","1000","100","11%","90",,,"","","","Yes",,,,
+CAD Holdings,"Fixed Income",GIC1,TEST GIC,"1000","110",CAD,N/A,N/A,"1000","1100","100","10%","100",,,"","","","","10","Jul 7, 2027",,
+US Holdings,"ETFs and ETNs",VTI,TEST US,5,"200",USD,"2","1%","900","1000","100","11%","180",,,"","","","",,,,
+
+Important Information
+"text"
+`;
+// two flat days, then +10% on the last day; USD pair at 1.4 -> 1.5
+const prices = { generated:'2027-01-08T18:00:00Z', marketDate:'2027-01-07', symbols:{
+  'ABC.TO': { off:-18000, price:110, time:Date.parse('2027-01-07T20:55:00Z')/1000, d:['2026-12-31','2027-01-05','2027-01-06'], c:[80,95,100], it:[], ic:[] },
+  'VTI':    { off:-18000, price:200, time:Date.parse('2027-01-07T20:55:00Z')/1000, d:['2026-12-31','2027-01-06'], c:[150,190], it:[], ic:[] },
+  'USDCAD=X': { off:0, price:1.5, time:Date.parse('2027-01-07T20:55:00Z')/1000, d:['2026-12-31','2027-01-06'], c:[1.3,1.4], it:[], ic:[] },
+}};
+const out = [];
+let fails = 0;
+function t(name, got, want, tol) {
+  const ok = typeof want === 'number' ? Math.abs(got - want) <= (tol || 1e-6) : JSON.stringify(got) === JSON.stringify(want);
+  if (!ok) fails++;
+  out.push(`<span class="${ok ? 'ok' : 'bad'}">${ok ? 'PASS' : 'FAIL'}</span> ${name}${ok ? '' : ` — got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`}`);
+}
+
+const a = Core.parseRbcHoldings(CSV);
+t('account id', a.id, '11112222'); t('account name', a.name, 'Test TFSA'); t('as-of date', a.asOf, '2027-01-07');
+t('cash parsed', a.cash, { CAD: 100, USD: 50 }); t('3 positions', a.positions.length, 3);
+t('quoted comma in name', a.positions[0].name, 'TEST, ETF');
+t('kinds', a.positions.map(p => p.kind), ['market', 'fixed', 'market']);
+t('GIC unit value = MV/qty', a.positions[1].unit, 1.1, 1e-9); t('GIC coupon', a.positions[1].coupon, 10); t('GIC maturity', a.positions[1].maturity, '2027-07-07');
+t('yahoo CAD', Core.yahooSymbol(a.positions[0]), 'ABC.TO'); t('yahoo USD', Core.yahooSymbol(a.positions[2]), 'VTI');
+t('yahoo dotted', Core.yahooSymbol({ symbol: 'ZEB.UN', currency: 'CAD' }), 'ZEB-UN.TO');
+let threw = false; try { Core.parseRbcHoldings('hello,world'); } catch (e) { threw = true; } t('rejects non-RBC file', threw, true);
+
+const mkt = Core.makeMarket(prices);
+const pos = Core.flatten([a]);
+t('flatten adds cash rows', pos.length, 5);
+const sum = (pid) => Core.finalize(Core.summarize(pos, mkt, pid)).total;
+// ABC 10 sh: 1100 now. GIC: 1100. VTI 5 sh USD200 @1.5 = 1500. cash 100 + 50USD@1.5 = 75
+t('value now', sum('1D').value, 1100 + 1100 + 1500 + 100 + 75, 1e-6);
+// 1D: ABC 10*(110-100)=100; VTI 5*(200*1.5 - 190*1.4)=5*(300-266)=170; USD cash 50*(1.5-1.4)=5; GIC ~ 1 day accrual
+const gicDay = 1100 * (1 - Math.pow(1.1, -1 / 365));
+t('1D change', sum('1D').change, 100 + 170 + 5 + gicDay, 1e-6);
+// YTD start = Dec 31 close: ABC 800, VTI 5*150*1.3=975, USD cash 65, GIC accrued back 7 days, CAD cash 100
+const gicYtd = 1100 * Math.pow(1.1, -7 / 365);
+t('YTD start', sum('YTD').start, 800 + 975 + 65 + gicYtd + 100, 1e-6);
+t('vs cost: start = book', sum('ALL').start, 900 + 1000 + 900 * 1.5 + 100 + 50 * 1.5, 1e-6);
+t('fixed income stops accruing at maturity', Core.accrual({ coupon: 10, asOf: '2027-01-07', maturity: '2027-07-07' }, '2030-01-01'), Math.pow(1.1, 181 / 365), 1e-9);
+
+const g = Core.groupRows(Core.summarize(Core.flatten([a, { ...a, id: 'x' }]), mkt, '1D'));
+t('grouping merges same symbol across accounts', g.find(r => r.symbol === 'ABC').qty, 20);
+
+const s1 = Core.buildSeries(pos, mkt, '1M'); const s2 = Core.buildSeries(pos, mkt, '1D');
+t('series ends at current value (1M)', s1.v[s1.v.length - 1], sum('1M').value, 1e-6);
+t('series ends at current value (1D)', s2.v[s2.v.length - 1], sum('1D').value, 1e-6);
+t('periods: 1W start date', Core.periodWindow('1W', mkt).date, '2026-12-31');
+t('periods: month-end clamp', Core.addMonths('2027-03-31', -1), '2027-02-28');
+t('missing symbol is reported', Core.missingSymbols([{ positions: [{ symbol: 'NEW', kind: 'market', currency: 'CAD' }], cash: {} }], mkt).map(m => m.yahoo), ['NEW.TO']);
+
+const up = Core.upsertAccount([{ ...a, name: 'Old', positions: [{ ...a.positions[0], yahoo: 'ABC.V' }] }], a);
+t('re-import replaces in place', up.accounts.length + ':' + up.replaced, '1:true');
+t('re-import keeps ticker override', up.accounts[0].positions[0].yahoo, 'ABC.V');
+
+out.push(`\n<b>${fails ? fails + ' FAILED' : 'ALL PASSED'}</b>`);
+document.getElementById('out').innerHTML = out.join('\n');
+document.title = fails ? 'FAIL' : 'PASS';
+</script></body></html>

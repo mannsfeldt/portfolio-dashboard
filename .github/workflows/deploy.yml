@@ -1,0 +1,51 @@
+name: Update prices and deploy
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # every 30 min during market hours (14:00-21:30 UTC covers 9:30-16:00 ET in both EST and EDT), Mon-Fri
+    - cron: '*/30 14-21 * * 1-5'
+    # one more run after the close to capture final prices
+    - cron: '20 22 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download prices from Yahoo Finance
+        shell: pwsh
+        run: ./scripts/fetch-prices.ps1
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site/data
+          cp index.html style.css core.js app.js favicon.svg _site/
+          cp data/prices.json _site/data/
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

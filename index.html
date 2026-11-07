@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Portfolio Dashboard</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script>try{var t=localStorage.getItem('pd.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="row1">
+      <h1>Portfolio</h1>
+      <div class="status" id="status"></div>
+      <div class="tools">
+        <div class="seg" id="unit" role="group" aria-label="Show change as">
+          <button type="button" data-unit="pct" aria-pressed="true">%</button>
+          <button type="button" data-unit="usd" aria-pressed="false">$</button>
+        </div>
+        <button type="button" class="icon" id="hide" aria-pressed="false" title="Hide dollar amounts" aria-label="Hide dollar amounts">
+          <svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+        <button type="button" class="icon" id="theme" title="Theme: auto / light / dark" aria-label="Change theme">
+          <svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        </button>
+        <button type="button" class="btn" id="manage">Manage</button>
+      </div>
+    </div>
+    <div class="seg periods" id="periods" role="radiogroup" aria-label="Time period"></div>
+  </div>
+</header>
+
+<main class="wrap" id="app"></main>
+
+<dialog id="dlg"></dialog>
+<div id="toast" role="status"></div>
+<input type="file" id="file" accept=".csv,text/csv" multiple hidden>
+
+<script src="core.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
