@@ -2,6 +2,12 @@
 # When you buy something new, add its Yahoo symbol here. Canadian listings end in .TO
 # (RBC "XEQT" -> XEQT.TO). US listings have no suffix (AAPL). The "=X" line is the USD->CAD exchange rate.
 USDCAD=X
+# Market indexes shown as comparisons on the dashboard (keep these)
+^GSPTSE
+^IXIC
+^DJI
+^GSPC
+# Your holdings
 XEQT.TO
 XGRO.TO
 XBAL.TO

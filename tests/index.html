@@ -30,6 +30,7 @@ Important Information
 const prices = { generated:'2027-01-08T18:00:00Z', marketDate:'2027-01-07', symbols:{
   'ABC.TO': { off:-18000, price:110, time:Date.parse('2027-01-07T20:55:00Z')/1000, d:['2026-12-31','2027-01-05','2027-01-06'], c:[80,95,100], it:[], ic:[] },
   'VTI':    { off:-18000, price:200, time:Date.parse('2027-01-07T20:55:00Z')/1000, d:['2026-12-31','2027-01-06'], c:[150,190], it:[], ic:[] },
+  '^GSPC':  { off:-18000, price:5500, time:Date.parse('2027-01-07T20:55:00Z')/1000, d:['2026-12-31','2027-01-05','2027-01-06'], c:[5000,5200,5000], it:[], ic:[] },
   'USDCAD=X': { off:0, price:1.5, time:Date.parse('2027-01-07T20:55:00Z')/1000, d:['2026-12-31','2027-01-06'], c:[1.3,1.4], it:[], ic:[] },
 }};
 const out = [];
@@ -78,6 +79,14 @@ t('missing symbol is reported', Core.missingSymbols([{ positions: [{ symbol: 'NE
 const up = Core.upsertAccount([{ ...a, name: 'Old', positions: [{ ...a.positions[0], yahoo: 'ABC.V' }] }], a);
 t('re-import replaces in place', up.accounts.length + ':' + up.replaced, '1:true');
 t('re-import keeps ticker override', up.accounts[0].positions[0].yahoo, 'ABC.V');
+
+const ix = Core.indexSummary(mkt, '1D'), spx = ix.find(x => x.sym === '^GSPC');
+t('index: 1D % change', spx.pct, 5500 / 5000 - 1, 1e-9); t('index: level', spx.level, 5500);
+t('index: missing index flagged', ix.find(x => x.sym === '^DJI').missing, true);
+t('index: YTD % change', Core.indexSummary(mkt, 'YTD').find(x => x.sym === '^GSPC').pct, 0.1, 1e-9);
+t('index: "since cost" falls back to 1Y', Core.indexSummary(mkt, 'ALL').find(x => x.sym === '^GSPC').proxied, true);
+const il = Core.indexLine('^GSPC', mkt, '1M', s1.t);
+t('index line aligned to portfolio grid', il.v.length, s1.t.length); t('index line ends at live level', il.v[il.v.length - 1], 5500); t('index line base = start level', il.base, 5000);
 
 out.push(`\n<b>${fails ? fails + ' FAILED' : 'ALL PASSED'}</b>`);
 document.getElementById('out').innerHTML = out.join('\n');

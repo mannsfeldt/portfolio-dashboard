@@ -8,7 +8,7 @@
   /* ---------- state ---------- */
   const S = {
     accounts: [],
-    prefs: { period: '1D', unit: 'pct', hide: false, sel: 'all', sort: 'value', dir: -1 },
+    prefs: { period: '1D', unit: 'pct', hide: false, sel: 'all', sort: 'value', dir: -1, cmp: ['^GSPTSE', '^GSPC'] },
     prices: null, mkt: Core.makeMarket(null), error: null,
   };
   const store = {
@@ -112,11 +112,36 @@
     const t = fin.total;
     const series = Core.buildSeries(sel.positions, S.mkt, pid);
     const info = periodInfo();
+
+    // index comparison: tiles double as chart toggles; with any selected the chart switches to % change
+    const ixList = Core.indexSummary(S.mkt, pid);
+    const cmp = (S.prefs.cmp || []).filter((sym) => ixList.some((x) => x.sym === sym && !x.missing));
+    let spec;
+    if (cmp.length) {
+      const pBase = pid === 'ALL' ? Core.finalize(Core.summarize(sel.positions, S.mkt, Core.indexPeriod(pid))).total.start : t.start;
+      const ls = [];
+      Core.INDEXES.forEach((ix) => {
+        if (!cmp.includes(ix.sym)) return;
+        const L = Core.indexLine(ix.sym, S.mkt, pid, series.t);
+        if (L) ls.push({ key: ix.sym, label: ix.label, color: ix.color, v: L.v, base: L.base });
+      });
+      ls.push({ key: 'portfolio', label: sel.name, color: 1, v: series.v, base: pBase });
+      spec = { t: series.t, series: ls, mode: 'pct', pid };
+    } else {
+      spec = { t: series.t, series: [{ key: 'portfolio', label: sel.name, color: 1, v: series.v, base: t.start }], mode: 'value', base: t.start, pid };
+    }
+    const legend = cmp.length
+      ? `<div class="legend" aria-label="Chart legend">${spec.series.slice().reverse().map((l) => `<span class="lg"><i class="sw" style="background:var(--s${l.color})"></i>${esc(l.label)} <b>${pct(l.v[l.v.length - 1] / l.base - 1)}</b></span>`).join('')}</div>`
+      : '';
+    const note = cmp.length
+      ? `Percent change from the start of the period${pid === 'ALL' ? ' (past year in this view)' : ''}; your line uses today’s holdings.`
+      : `${pid === 'ALL' ? 'Chart shows the past year; dashed line = total book cost.' : 'Dashed line = value at the start of the period.'} Current holdings valued over time.`;
     const gainLine = pid === 'ALL' ? '' : `<span class="p-sub">Since cost: <span class="${t.gain >= 0 ? 'pos' : 'neg'}"><span class="amt">${money(t.gain, { sign: true })}</span> (${pct(t.gainPct)})</span></span>`;
 
     app.innerHTML = `
       ${bannerHtml()}
       <div class="cards">${cards}</div>
+      ${marketsHtml(ixList, pid, cmp)}
       <section class="panel" aria-label="${esc(sel.name)} detail">
         <div class="p-head">
           <div>
@@ -128,15 +153,35 @@
             ${gainLine}
           </div>
         </div>
+        ${legend}
         <div class="chart" id="chart"></div>
-        <div class="legend-note">${pid === 'ALL' ? 'Chart shows the past year; dashed line = total book cost.' : 'Dashed line = value at the start of the period.'} Current holdings valued over time.</div>
+        <div class="legend-note">${note}</div>
         <div class="tbl-wrap">${tableHtml(fin.rows)}</div>
       </section>
       <div class="foot">
         <p>Changes are price-only (distributions aren’t included) and assume you held today’s positions for the whole period, so they aren’t your personal time-weighted return. GICs accrue at their stated rate; savings accounts and manual funds are held flat.</p>
         <p>Your holdings are stored only in this browser — never on the server. Prices: Yahoo Finance, refreshed every ~30 minutes on market days (may be delayed; thinly traded ETFs can differ slightly from RBC).</p>
       </div>`;
-    drawChart($('#chart'), series, t.start, pid);
+    drawChart($('#chart'), spec);
+  }
+
+  function marketsHtml(ixList, pid, cmp) {
+    if (ixList.every((x) => x.missing)) return '';
+    const tiles = ixList.map((x) => {
+      if (x.missing) return `<div class="tile off"><div class="t-name"><i class="sw" style="background:var(--s${x.color})"></i>${esc(x.label)}</div><div class="t-sub">no data yet</div></div>`;
+      const flat = Math.abs(x.change) < 0.005, cls = flat ? 'flat' : x.change > 0 ? 'pos' : 'neg', arrow = flat ? '▬' : x.change > 0 ? '▲' : '▼';
+      const pts = (x.change > 0 ? '+' : x.change < 0 ? '−' : '') + group2.format(Math.abs(x.change)) + ' pts';
+      const first = S.prefs.unit === 'pct' ? pct(x.pct) : pts, second = S.prefs.unit === 'pct' ? pts : pct(x.pct);
+      const on = cmp.includes(x.sym);
+      return `<button type="button" class="tile${on ? ' on' : ''}" data-ix="${esc(x.sym)}" aria-pressed="${on}" title="${on ? 'Hide from' : 'Compare on'} chart">
+        <div class="t-name"><i class="sw" style="background:var(--s${x.color})"></i>${esc(x.label)}</div>
+        <div class="t-val">${group2.format(x.level)}</div>
+        <div class="t-chg"><span class="chg ${cls}"><span aria-hidden="true">${arrow}</span> <b>${first}</b></span> <span class="chg2">${second}</span></div>
+      </button>`;
+    }).join('');
+    return `<section class="markets" aria-label="Market indexes">
+      <div class="m-head"><strong>Markets</strong> · ${esc(pid === 'ALL' ? 'past year' : periodInfo().long.toLowerCase())} <span class="m-hint">Tap an index to compare it with the selected portfolio on the chart</span></div>
+      <div class="tiles">${tiles}</div></section>`;
   }
 
   function statusText() {
@@ -227,14 +272,18 @@
     return { ticks: out, step };
   }
 
-  function drawChart(host, ser, base, pid) {
+  // spec: { t:[ms], series:[{key,label,color(1-5),v:[],base}], mode:'value'|'pct', base (value mode), pid }
+  function drawChart(host, spec) {
     if (!host) return;
-    const n = ser.v.length;
+    const { t, series, mode, pid } = spec;
+    const n = t.length, hide = S.prefs.hide, pctMode = mode === 'pct';
+    const lines = series.map((s) => Object.assign({}, s, { y: pctMode ? s.v.map((x) => (s.base ? x / s.base - 1 : 0)) : s.v }));
+    const baseY = pctMode ? 0 : spec.base;
     const W = Math.max(280, host.clientWidth || 600), H = W < 520 ? 210 : 280;
-    const hide = S.prefs.hide;
-    const padL = hide ? 12 : (W < 520 ? 66 : 80), padR = 12, padT = 10, padB = 24;
-    const all = ser.v.concat([base]);
-    let min = Math.min.apply(null, all), max = Math.max.apply(null, all);
+    const showYLabels = pctMode || !hide;
+    const padL = !showYLabels ? 12 : (pctMode ? 54 : (W < 520 ? 66 : 80)), padR = 12, padT = 10, padB = 24;
+    let min = baseY, max = baseY;
+    lines.forEach((l) => l.y.forEach((v) => { if (v < min) min = v; if (v > max) max = v; }));
     const span = (max - min) || Math.abs(max) * 0.01 || 1;
     min -= span * 0.12; max += span * 0.12;
     const X = (i) => padL + (n === 1 ? 0 : (i / (n - 1)) * (W - padL - padR));
@@ -247,38 +296,49 @@
     const nx = W < 520 ? 4 : 6;
     const xs = [];
     for (let k = 0; k < nx; k++) xs.push(Math.round((k * (n - 1)) / (nx - 1)));
-    const ylab = (v) => '$' + (step >= 1 ? group.format(Math.round(v)) : group2.format(v));
+    const ylab = (v) => {
+      if (pctMode) { const d = step >= 0.01 ? 0 : step >= 0.001 ? 1 : 2; const a = Math.abs(v * 100).toFixed(d); return (Math.abs(v) < 1e-9 ? '' : v > 0 ? '+' : '−') + a + '%'; }
+      return '$' + (step >= 1 ? group.format(Math.round(v)) : group2.format(v));
+    };
 
-    const path = ser.v.map((v, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1)).join('');
-    const first = ser.v[0], last = ser.v[n - 1];
-    const label = `Value moved from ${money(first)} to ${money(last)} over the period.`;
-    host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${hide ? 'Portfolio value chart' : esc(label)}">
-      ${ticks.map((v) => `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"/>${hide ? '' : `<text x="${padL - 8}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${ylab(v)}</text>`}`).join('')}
-      <line class="base" x1="${padL}" x2="${W - padR}" y1="${Y(base).toFixed(1)}" y2="${Y(base).toFixed(1)}"/>
-      ${xs.map((i, k) => `<text x="${X(i).toFixed(1)}" y="${H - 6}" text-anchor="${k === 0 ? 'start' : k === nx - 1 ? 'end' : 'middle'}">${esc(tf.format(new Date(ser.t[i])))}</text>`).join('')}
-      <path class="line" d="${path}"/>
-      <g id="hv" style="display:none"><line class="cross" y1="${padT}" y2="${H - padB}"/><circle class="dot" r="5"/></g>
+    const port = lines[lines.length - 1];
+    const label = pctMode
+      ? 'Percent change over the period: ' + lines.map((l) => `${l.label} ${pct(l.y[n - 1])}`).join(', ') + '.'
+      : `Value moved from ${money(port.v[0])} to ${money(port.v[n - 1])} over the period.`;
+    const paths = lines.map((l) => `<path class="line" style="stroke:var(--s${l.color})" d="${l.y.map((v, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1)).join('')}"/>`).join('');
+    host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${(hide && !pctMode) ? 'Portfolio value chart' : esc(label)}">
+      ${ticks.map((v) => `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"/>${showYLabels ? `<text x="${padL - 8}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${ylab(v)}</text>` : ''}`).join('')}
+      <line class="base" x1="${padL}" x2="${W - padR}" y1="${Y(baseY).toFixed(1)}" y2="${Y(baseY).toFixed(1)}"/>
+      ${xs.map((i, k) => `<text x="${X(i).toFixed(1)}" y="${H - 6}" text-anchor="${k === 0 ? 'start' : k === nx - 1 ? 'end' : 'middle'}">${esc(tf.format(new Date(t[i])))}</text>`).join('')}
+      ${paths}
+      <g id="hv" style="display:none"><line class="cross" y1="${padT}" y2="${H - padB}"/>${lines.map((l) => `<circle class="dot" r="5" style="fill:var(--s${l.color})"/>`).join('')}</g>
       <rect id="hit" x="${padL}" y="0" width="${W - padL - padR}" height="${H}" fill="transparent"/>
     </svg><div class="tip" id="tip"></div>`;
 
     const svg = host.querySelector('svg'), hv = svg.querySelector('#hv'), tip = host.querySelector('#tip');
-    const cross = hv.querySelector('line'), dot = hv.querySelector('circle');
+    const cross = hv.querySelector('line'), dots = hv.querySelectorAll('circle');
     function show(ev) {
       const r = svg.getBoundingClientRect();
       const x = (ev.clientX - r.left) * (W / r.width);
       const i = Math.max(0, Math.min(n - 1, Math.round(((x - padL) / (W - padL - padR)) * (n - 1))));
-      const px = X(i), py = Y(ser.v[i]);
+      const px = X(i);
       hv.style.display = '';
       cross.setAttribute('x1', px); cross.setAttribute('x2', px);
-      dot.setAttribute('cx', px); dot.setAttribute('cy', py);
-      const d = ser.v[i] - base, p = base ? d / base : null;
-      tip.innerHTML = `<div class="t1">${esc(tipFmt.format(new Date(ser.t[i])))}</div>${hide ? '' : `<div class="t2">${money(ser.v[i])}</div>`}<div>${chg(d, p)}</div>`;
+      lines.forEach((l, k) => { dots[k].setAttribute('cx', px); dots[k].setAttribute('cy', Y(l.y[i])); });
+      let body;
+      if (pctMode) {
+        body = lines.slice().reverse().map((l) => `<div class="trow"><i class="sw" style="background:var(--s${l.color})"></i>${esc(l.label)} <b>${pct(l.y[i])}</b>${l.key === 'portfolio' && !hide ? ` <span class="chg2 amt">${money(l.v[i] - l.base, { sign: true })}</span>` : ''}</div>`).join('');
+      } else {
+        const d = port.v[i] - spec.base, p = spec.base ? d / spec.base : null;
+        body = `${hide ? '' : `<div class="t2">${money(port.v[i])}</div>`}<div>${chg(d, p)}</div>`;
+      }
+      tip.innerHTML = `<div class="t1">${esc(tipFmt.format(new Date(t[i])))}</div>${body}`;
       tip.style.display = 'block';
       const tw = tip.offsetWidth, scale = r.width / W;
       let left = px * scale + 12;
       if (left + tw > r.width) left = px * scale - tw - 12;
       tip.style.left = Math.max(0, left) + 'px';
-      tip.style.top = Math.max(0, py * scale - 54) + 'px';
+      tip.style.top = Math.max(0, Y(port.y[i]) * scale - 54) + 'px';
     }
     const hide2 = () => { hv.style.display = 'none'; tip.style.display = 'none'; };
     const hit = svg.querySelector('#hit');
@@ -436,6 +496,11 @@
     const t = e.target.closest('button, th[data-sort]');
     if (!t) return;
     if (t.dataset.period) { S.prefs.period = t.dataset.period; savePrefs(); return render(); }
+    if (t.dataset.ix) {
+      const cur = S.prefs.cmp || [];
+      S.prefs.cmp = cur.includes(t.dataset.ix) ? cur.filter((x) => x !== t.dataset.ix) : cur.concat([t.dataset.ix]);
+      savePrefs(); return render();
+    }
     if (t.dataset.unit) { S.prefs.unit = t.dataset.unit; savePrefs(); return render(); }
     if (t.dataset.sel) { S.prefs.sel = t.dataset.sel; savePrefs(); render(); const p = $('.panel'); if (p && window.innerWidth < 900) p.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (t.dataset.sort) {

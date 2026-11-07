@@ -367,7 +367,41 @@
     return { t: ts, v };
   }
 
+  /* ---------- market index comparison ---------- */
+  // `color` = categorical slot (portfolio is slot 1) so an index keeps its colour whatever is toggled.
+  const INDEXES = [
+    { sym: '^GSPTSE', label: 'S&P/TSX', color: 2 },
+    { sym: '^IXIC', label: 'NASDAQ', color: 3 },
+    { sym: '^DJI', label: 'Dow Jones', color: 4 },
+    { sym: '^GSPC', label: 'S&P 500', color: 5 },
+  ];
+  // "Since cost" has no index equivalent, so indexes (and the comparison chart) use the past year there.
+  const indexPeriod = (pid) => (pid === 'ALL' ? '1Y' : pid);
+
+  function indexSummary(mkt, pid) {
+    const p2 = indexPeriod(pid);
+    const w = periodWindow(p2, mkt);
+    return INDEXES.map((ix) => {
+      const s = mkt.syms[ix.sym];
+      if (!s || s.price == null) return { ...ix, missing: true };
+      const start = priceAt(s, w);
+      return { ...ix, level: s.price, start, change: s.price - start, pct: start ? s.price / start - 1 : null, proxied: pid === 'ALL' };
+    });
+  }
+
+  // Index values on the same timestamps as the portfolio chart, plus the period-start level.
+  function indexLine(sym, mkt, pid, ts) {
+    const s = mkt.syms[sym];
+    if (!s || s.price == null) return null;
+    const p2 = indexPeriod(pid);
+    const pts = seriesPts(s, p2, mkt);
+    const v = ts.map((t) => ffill(pts, t));
+    v[v.length - 1] = s.price; // the chart's last point is "now", whatever the quote's own timestamp bucket
+    return { base: priceAt(s, periodWindow(p2, mkt)), v };
+  }
+
   return {
+    INDEXES, indexSummary, indexLine, indexPeriod,
     PERIODS, parseCsv, parseRbcHoldings, parseDateText, upsertAccount, yahooSymbol, makeMarket, missingSymbols,
     periodWindow, flatten, summarize, groupRows, finalize, buildSeries, addDays, addMonths, accrual, num,
   };
