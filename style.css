@@ -46,6 +46,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .icon { width: 34px; display: grid; place-items: center; }
 .icon svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .icon[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.icon:disabled { opacity: .45; cursor: default; }
+.icon.spin svg { animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.status .stale { color: var(--warn-ink); background: var(--warn-bg); border-radius: 5px; padding: 1px 6px; white-space: nowrap; }
 .btn { padding: 0 12px; font-size: 13px; font-weight: 600; }
 .btn:hover, .icon:hover { background: var(--hover); }
 .btn.primary { background: var(--accent); color: #fff; border-color: transparent; }

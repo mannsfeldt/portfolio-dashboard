@@ -84,7 +84,7 @@
     document.querySelectorAll('#unit button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.unit === S.prefs.unit)));
     $('#hide').setAttribute('aria-pressed', String(S.prefs.hide));
     document.body.classList.toggle('hide-amounts', S.prefs.hide);
-    $('#status').textContent = statusText();
+    $('#status').innerHTML = statusText();
 
     const app = $('#app');
     if (!S.accounts.length) { app.innerHTML = emptyHtml(); return; }
@@ -184,10 +184,64 @@
       <div class="tiles">${tiles}</div></section>`;
   }
 
+  /* ---------- freshness (tells the truth about how old the prices are) ---------- */
+  // latest quote time across the holdings/index feed (ignores FX, which trades around the clock)
+  function latestQuote() {
+    if (!S.prices) return null;
+    let m = 0;
+    Object.entries(S.prices.symbols || {}).forEach(([k, s]) => { if (!/=X$/.test(k) && s.time > m) m = s.time; });
+    return m ? m * 1000 : null;
+  }
+  // TSX/NYSE regular session, Mon–Fri 9:30–16:00 Toronto time (holidays not known)
+  function marketOpen(now) {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: TZ, weekday: 'short', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' })
+      .formatToParts(now || new Date()).map((x) => [x.type, x.value]));
+    const mins = +p.hour * 60 + +p.minute;
+    return !/Sat|Sun/.test(p.weekday) && mins >= 570 && mins < 960;
+  }
+  function freshness() {
+    const q = latestQuote();
+    if (!q) return null;
+    const age = Date.now() - q, open = marketOpen();
+    return { q, age, open, stale: open && age > 45 * 60000 };
+  }
+  const quoteFmt = dFmt({ weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
   function statusText() {
     if (!S.accounts.length) return 'Add your holdings to get started';
-    if (S.prices) return `Market data as of ${fmtDay(S.mkt.ref)} · feed updated ${ago(S.prices.generated)}`;
+    if (S.prices) {
+      const f = freshness();
+      if (!f) return `Market data as of ${esc(fmtDay(S.mkt.ref))}`;
+      const when = esc(quoteFmt.format(new Date(f.q))) + ' ET';
+      if (f.stale) return `<span class="stale">⚠ Prices from ${when} — the scheduled update is behind</span>`;
+      return `Prices as of ${when}${f.open ? ' (market open, ~15 min delay)' : ' · market closed'}`;
+    }
     return S.error ? 'Price feed unavailable — showing last RBC prices (no history)' : 'Loading prices…';
+  }
+
+  /* ---------- manual refresh with cooldown ---------- */
+  const COOLDOWN = 60 * 1000;
+  let lastManual = 0, cdTimer = null;
+  async function manualRefresh() {
+    const btn = $('#refresh');
+    const wait = COOLDOWN - (Date.now() - lastManual);
+    if (wait > 0) { toast(`Just checked — try again in ${Math.ceil(wait / 1000)} s`, 2000); return; }
+    lastManual = Date.now();
+    const before = latestQuote();
+    btn.disabled = true; btn.classList.add('spin');
+    await loadPrices();
+    btn.classList.remove('spin');
+    const f = freshness();
+    if (S.error) toast('Couldn’t reach the price feed — check your connection and try again.');
+    else if (!f) toast('No prices available yet.');
+    else {
+      const when = quoteFmt.format(new Date(f.q)) + ' ET';
+      if (before && f.q > before) toast(`Updated — prices as of ${when}`);
+      else if (!f.open) toast(`Market is closed. These are the latest prices (${when}).`, 5000);
+      else toast(`No newer prices published yet. Latest is ${when} (${ago(new Date(f.q).toISOString())}). Updates are published about every 15 minutes.`, 6500);
+    }
+    clearTimeout(cdTimer);
+    cdTimer = setTimeout(() => { btn.disabled = false; }, COOLDOWN);
   }
 
   function repoEditUrl() {
@@ -524,6 +578,7 @@
     }
     if (t.id === 'hide') { S.prefs.hide = !S.prefs.hide; savePrefs(); return render(); }
     if (t.id === 'theme') return cycleTheme();
+    if (t.id === 'refresh') return manualRefresh();
     if (t.id === 'manage') return manageDlg();
     const act = t.dataset.act;
     if (!act) return;

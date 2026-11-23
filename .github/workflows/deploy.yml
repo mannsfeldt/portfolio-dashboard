@@ -4,10 +4,12 @@ on:
   push:
     branches: [main]
   schedule:
-    # every 30 min during market hours (14:00-21:30 UTC covers 9:30-16:00 ET in both EST and EDT), Mon-Fri
-    - cron: '*/30 14-21 * * 1-5'
-    # one more run after the close to capture final prices
-    - cron: '20 22 * * 1-5'
+    # Every 15 min during market hours (13:00-21:59 UTC covers 9:30-16:00 ET in both EST and EDT), Mon-Fri.
+    # Odd minutes on purpose: GitHub drops many scheduled runs set for :00/:30, when its queues are busiest.
+    # Scheduled runs are still best-effort on GitHub's side; the page shows a warning when prices fall behind.
+    - cron: '7,22,37,52 13-21 * * 1-5'
+    # after the close, to capture final prices
+    - cron: '17 22 * * 1-5'
   workflow_dispatch:
 
 permissions:
